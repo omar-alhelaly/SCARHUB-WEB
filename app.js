@@ -148,6 +148,26 @@
   }
 
   /* ---------- account ---------- */
+  /* manual Vodafone Cash payment: customer sends money, uploads proof, owner approves in Admin. Amount and plan are checked by the database. */
+  async function manualForm(p, box, msg) {
+    clear(box); var ins = await sb.rpc("manual_instructions"), i = (ins.data || [])[0];
+    if (!i) return say(msg, tr("Manual payment is not available right now.", "الدفع اليدوي مش متاح دلوقتي."), "err");
+    var ref = h("input", { type: "text", maxlength: "40", placeholder: tr("Transaction id or your sending number", "رقم العملية أو رقم الموبايل اللي حولت منه") }), file = h("input", { type: "file", accept: "image/jpeg,image/png,image/webp" });
+    box.appendChild(h("div", { "class": "panel" },
+      h("p", { text: tr("1. Send exactly ", "1. حوّل بالظبط ") + (p.price_minor / 100).toFixed(2) + " " + p.currency + tr(" by Vodafone Cash to ", " بفودافون كاش على ") + i.wallet_number + " (" + i.holder_name + ")" }),
+      i.note ? h("p", { "class": "hint", text: i.note }) : null,
+      h("p", { text: tr("2. Enter the transaction id and attach a screenshot (JPG, PNG or WebP, max 5 MB).", "2. اكتب رقم العملية وارفق صورة التحويل (JPG أو PNG أو WebP، 5 ميجا بحد أقصى).") }), ref, file,
+      h("div", { "class": "row" }, h("button", { "class": "btn f", type: "button", text: tr("Send for approval", "ابعت للمراجعة"), on: { click: async function () {
+        var f = file.files[0]; if (!f || !/^image\/(jpeg|png|webp)$/.test(f.type) || f.size > 5242880) return say(msg, tr("Attach a JPG, PNG or WebP image up to 5 MB.", "ارفق صورة JPG أو PNG أو WebP لحد 5 ميجا."), "err");
+        if (!/^[A-Za-z0-9 -]{4,40}$/.test(ref.value.trim())) return say(msg, tr("Enter the transaction id (4 to 40 letters or numbers).", "اكتب رقم العملية (4 لـ 40 حرف أو رقم)."), "err");
+        var path = me.id + "/" + Date.now() + "-" + Math.random().toString(36).slice(2, 10) + "." + { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" }[f.type];
+        var up = await sb.storage.from("payment-proofs").upload(path, f, { contentType: f.type, upsert: false });
+        if (up.error) return say(msg, tr("Upload failed.", "فشل رفع الصورة."), "err");
+        var r = await sb.rpc("submit_manual_payment", { p_plan: p.id, p_reference: ref.value.trim(), p_proof: path });
+        if (r.error) return say(msg, /one_pending/.test(r.error.message) ? tr("You already have a payment waiting for approval.", "عندك دفعة مستنية المراجعة.") : tr("Could not submit.", "ماقدرتش أبعت."), "err");
+        clear(box); say(msg, tr("Sent. The owner will review it and activate your subscription.", "اتبعتت. المالك هيراجعها ويفعّل اشتراكك."), "ok");
+      } } }))));
+  }
   async function accountPage() {
     var app = $("app"); if (!me) return go("login.html"); clear(app);
     var box = h("div", { "class": "wide" }); app.appendChild(box);
@@ -164,16 +184,27 @@
     var subR = await sb.from("subscriptions").select("status,current_period_end").eq("user_id", me.id).maybeSingle();
     var active = subR.data && /^(active|trialing)$/.test(subR.data.status) && new Date(subR.data.current_period_end) > new Date();
     plansBox.appendChild(h("p", { text: active ? tr("Active until ", "نشط لحد ") + new Date(subR.data.current_period_end).toLocaleDateString() : tr("No active subscription. Private tools need one.", "مفيش اشتراك فعال. الأدوات الخاصة محتاجة اشتراك.") }));
-    var pl = await sb.from("plans").select("id,name,price_minor,currency,period,provider").eq("active", true);
+    var pl = await sb.from("plans").select("id,name,price_minor,currency,period").eq("active", true);
+    var pm = await sb.rpc("payment_methods"), methods = (pm.data || []).map(function (x) { return x.method; });
+    var manualBox = h("div"), payMsg = h("div", { "class": "msg" });
+    if ((pl.data || []).length && !methods.length) plansBox.appendChild(h("p", { "class": "hint", text: tr("Payments are not open yet.", "الدفع لسه مش مفتوح.") }));
+    if (methods.length) plansBox.appendChild(h("p", { "class": "hint", text: tr("Choose how to pay:", "اختار طريقة الدفع:") }));
     (pl.data || []).forEach(function (p) {
-      var b = h("button", { "class": "btn", type: "button", text: p.name + " - " + (p.price_minor / 100).toFixed(2) + " " + p.currency + " / " + p.period, on: { click: async function () {
-        if (p.provider !== "stripe") return alert(tr("This payment method is not available yet.", "طريقة الدفع دي لسه مش متاحة."));
+      if (!methods.length) return;
+      var row = h("div", { "class": "row" }, h("span", { text: p.name + " - " + (p.price_minor / 100).toFixed(2) + " " + p.currency + " / " + p.period + "  " }));
+      if (methods.indexOf("paymob") > -1 && p.currency === "EGP") row.appendChild(h("button", { "class": "btn", type: "button", text: tr("Pay by card / wallet (Paymob)", "ادفع بكارت / محفظة (Paymob)"), on: { click: async function () {
         var s = (await sb.auth.getSession()).data.session;
-        var r = await fetch(CFG.url + "/functions/v1/create-checkout", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + s.access_token, apikey: CFG.anonKey }, body: JSON.stringify({ plan_id: p.id }) });
-        var j = await r.json(); if (j.url && /^https:\/\/checkout\.stripe\.com\//.test(j.url)) location.href = j.url; else alert(tr("Checkout failed.", "فشل الدفع."));
-      } } });
-      plansBox.appendChild(h("div", { "class": "row" }, b));
+        var r = await fetch(CFG.url + "/functions/v1/paymob-checkout", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + s.access_token, apikey: CFG.anonKey }, body: JSON.stringify({ plan_id: p.id }) });
+        var j = await r.json().catch(function () { return {}; }); if (j.url && /^https:\/\/eg\.checkout\.paymob\.com\//.test(j.url)) location.href = j.url; else say(payMsg, tr("Payment is not available right now.", "الدفع مش متاح دلوقتي."), "err");
+      } } }));
+      if (methods.indexOf("manual") > -1) row.appendChild(h("button", { "class": "btn", type: "button", text: tr("Vodafone Cash transfer", "تحويل فودافون كاش"), on: { click: function () { manualForm(p, manualBox, payMsg); } } }));
+      plansBox.appendChild(row);
     });
+    plansBox.appendChild(manualBox); plansBox.appendChild(payMsg);
+    var mine = await sb.from("payment_requests").select("method,status,amount_minor,currency,created_at,reject_reason").order("created_at", { ascending: false }).limit(5);
+    if ((mine.data || []).length) { plansBox.appendChild(h("h3", { text: tr("My payments", "مدفوعاتي") })); mine.data.forEach(function (q) {
+      plansBox.appendChild(h("p", { "class": "hint", text: new Date(q.created_at).toLocaleDateString() + " - " + q.method + " - " + (q.amount_minor / 100).toFixed(2) + " " + q.currency + " - " + q.status + (q.reject_reason ? " (" + q.reject_reason + ")" : "") }));
+    }); }
     var dpw = h("input", { type: "password", autocomplete: "current-password", maxlength: "64" }), dmsg = h("div", { "class": "msg" });
     box.appendChild(h("div", { "class": "panel", id: "delete" }, h("h2", { text: tr("Delete account", "حذف الحساب") }), h("p", { text: tr("This signs you out and removes your login. It cannot be undone.", "ده هيطلعك ويمسح الدخول بتاعك. ماينفعش يتراجع.") }), h("label", { text: tr("Confirm with your password", "أكد بالباسورد") }), dpw,
       h("div", { "class": "row" }, h("button", { "class": "btn", type: "button", text: tr("Delete my account", "احذف حسابي"), on: { click: async function () {
@@ -275,23 +306,52 @@
     if (!owner) return;
     /* plans (owner only) */
     var pp = h("div", { "class": "panel" }, h("h2", { text: tr("Payments", "المدفوعات") })), pmsg = h("div", { "class": "msg" }); box.appendChild(pp);
-    var prov = await sb.from("payment_providers").select("provider,enabled"); (prov.data || []).forEach(function (p) {
+    var NAMES = { manual: "Manual (Vodafone Cash)", paymob: "Paymob" };
+    var prov = await sb.from("payment_providers").select("provider,enabled").in("provider", ["manual", "paymob"]); (prov.data || []).forEach(function (p) {
       var c = h("input", { type: "checkbox" }); c.checked = p.enabled; c.disabled = !owner;
       c.addEventListener("change", async function () { var x = await sb.from("payment_providers").update({ enabled: c.checked }).eq("provider", p.provider); if (x.error) { c.checked = !c.checked; say(pmsg, x.error.message, "err"); } });
-      pp.appendChild(h("label", { style: "display:inline-block;margin-inline-end:14px" }, c, " " + p.provider));
+      pp.appendChild(h("label", { style: "display:inline-block;margin-inline-end:14px" }, c, " " + NAMES[p.provider] + (p.provider === "paymob" ? " (not tested yet)" : " (not tested yet)")));
     });
-    var pl = await sb.from("plans").select("id,name,price_minor,currency,period,provider,active"); (pl.data || []).forEach(function (p) {
-      pp.appendChild(h("p", { text: p.name + ": " + (p.price_minor / 100).toFixed(2) + " " + p.currency + "/" + p.period + " via " + p.provider + (p.active ? "" : " (off)") }));
+    var pl = await sb.from("plans").select("id,name,price_minor,currency,period,active"); (pl.data || []).forEach(function (p) {
+      pp.appendChild(h("p", { text: p.name + ": " + (p.price_minor / 100).toFixed(2) + " " + p.currency + "/" + p.period + (p.active ? "" : " (off)") }));
     });
     if (owner) {
-      var n = h("input", { type: "text", placeholder: "name", maxlength: "40" }), pr = h("input", { type: "text", placeholder: "price e.g. 9.99", inputmode: "decimal" }), cu = h("input", { type: "text", placeholder: "USD / EGP", maxlength: "3" });
-      var pe = h("select", null, h("option", { value: "month", text: "month" }), h("option", { value: "year", text: "year" })), pv = h("select", null); ["stripe", "paymob", "fawry", "paypal", "manual"].forEach(function (x) { pv.appendChild(h("option", { value: x, text: x })); });
-      var ref = h("input", { type: "text", placeholder: "provider price id (Stripe)", maxlength: "100" });
-      pp.appendChild(h("div", { "class": "row" }, n, pr, cu, pe, pv, ref, h("button", { "class": "btn f", type: "button", text: tr("Add plan", "ضيف خطة"), on: { click: async function () {
+      pp.appendChild(h("p", { "class": "hint", text: tr("A plan's price applies to every enabled method. Paymob needs EGP plans.", "سعر الخطة بيتطبق على كل طرق الدفع المفعلة. Paymob محتاج خطط بالجنيه.") }));
+      var n = h("input", { type: "text", placeholder: "name", maxlength: "40" }), pr = h("input", { type: "text", placeholder: "price e.g. 99.00", inputmode: "decimal" }), cu = h("input", { type: "text", placeholder: "EGP", maxlength: "3" });
+      var pe = h("select", null, h("option", { value: "month", text: "month" }), h("option", { value: "year", text: "year" }));
+      pp.appendChild(h("div", { "class": "row" }, n, pr, cu, pe, h("button", { "class": "btn f", type: "button", text: tr("Add plan", "ضيف خطة"), on: { click: async function () {
         var minor = Math.round(parseFloat(pr.value) * 100); if (!(minor >= 0) || !/^[A-Za-z]{3}$/.test(cu.value)) return say(pmsg, "price/currency?", "err");
-        var x = await sb.from("plans").insert({ name: n.value.trim(), price_minor: minor, currency: cu.value.toUpperCase(), period: pe.value, provider: pv.value, provider_ref: ref.value.trim() || null, active: true });
+        var x = await sb.from("plans").insert({ name: n.value.trim(), price_minor: minor, currency: cu.value.toUpperCase(), period: pe.value, provider: "manual", active: true });
         say(pmsg, x.error ? x.error.message : tr("Added. Reload to see it.", "اتضافت. حدّث الصفحة."), x.error ? "err" : "ok");
       } } })));
+      /* Vodafone Cash details shown to customers (owner only; kept in the database, not in the repo) */
+      var ms = await sb.rpc("get_manual_settings"), cur = (ms.data || [])[0] || {};
+      var wn = h("input", { type: "text", maxlength: "11", placeholder: "01XXXXXXXXX", value: cur.wallet_number || "" }), wh = h("input", { type: "text", maxlength: "60", placeholder: tr("Name on the wallet", "الاسم على المحفظة"), value: cur.holder_name || "" }), wt = h("input", { type: "text", maxlength: "300", placeholder: tr("Note for customers (optional)", "ملاحظة للعملاء (اختياري)"), value: cur.note || "" });
+      pp.appendChild(h("h3", { text: tr("Vodafone Cash details", "بيانات فودافون كاش") }));
+      pp.appendChild(h("div", { "class": "row" }, wn, wh, wt, h("button", { "class": "btn f", type: "button", text: tr("Save", "حفظ"), on: { click: async function () {
+        if (!/^01[0125][0-9]{8}$/.test(wn.value.trim())) return say(pmsg, tr("Wallet number must be an Egyptian mobile number.", "الرقم لازم يكون موبايل مصري."), "err");
+        var x = await sb.rpc("set_manual_instructions", { w: wn.value.trim(), holder: wh.value.trim(), n: wt.value.trim() });
+        say(pmsg, x.error ? tr("Could not save.", "ماتحفظش.") : tr("Saved.", "اتحفظ."), x.error ? "err" : "ok");
+      } } })));
+      /* pending manual payments */
+      pp.appendChild(h("h3", { text: tr("Manual payments waiting", "دفعات يدوية مستنية") }));
+      var rq = await sb.from("payment_requests").select("id,user_id,amount_minor,currency,period,reference,proof_path,created_at").eq("method", "manual").eq("status", "pending").order("created_at");
+      if (!(rq.data || []).length) pp.appendChild(h("p", { "class": "hint", text: tr("None.", "مفيش.") }));
+      (rq.data || []).forEach(function (q) {
+        var rowEl = h("div", { "class": "row" }, h("span", { text: new Date(q.created_at).toLocaleString() + " - " + (q.amount_minor / 100).toFixed(2) + " " + q.currency + "/" + q.period + " - ref " + q.reference + " - user " + q.user_id.slice(0, 8) + "  " }));
+        rowEl.appendChild(h("button", { "class": "btn", type: "button", text: tr("View proof", "اعرض الإثبات"), on: { click: async function () {
+          var u = await sb.storage.from("payment-proofs").createSignedUrl(q.proof_path, 60); if (u.data) window.open(u.data.signedUrl, "_blank", "noopener"); else say(pmsg, tr("Could not open the proof.", "ماقدرتش أفتح الإثبات."), "err");
+        } } }));
+        rowEl.appendChild(h("button", { "class": "btn f", type: "button", text: tr("Approve", "اقبل"), on: { click: async function () {
+          if (!confirm(tr("Approve and activate this subscription?", "تقبل وتفعّل الاشتراك؟"))) return;
+          var x = await sb.rpc("review_manual_payment", { p_id: q.id, p_approve: true }); if (x.error) say(pmsg, tr("Failed.", "فشل."), "err"); else { say(pmsg, tr("Approved.", "اتقبلت."), "ok"); rowEl.remove(); }
+        } } }));
+        rowEl.appendChild(h("button", { "class": "btn", type: "button", text: tr("Reject", "ارفض"), on: { click: async function () {
+          var why = prompt(tr("Reason (shown to the customer)", "السبب (هيظهر للعميل)")); if (why === null) return;
+          var x = await sb.rpc("review_manual_payment", { p_id: q.id, p_approve: false, p_reason: why.slice(0, 200) }); if (x.error) say(pmsg, tr("Failed.", "فشل."), "err"); else { say(pmsg, tr("Rejected.", "اترفضت."), "ok"); rowEl.remove(); }
+        } } }));
+        pp.appendChild(rowEl);
+      });
     } else pp.appendChild(h("p", { "class": "hint", text: tr("Only the owner can change payment settings.", "المالك بس يقدر يغيّر إعدادات الدفع.") }));
     pp.appendChild(pmsg);
   }
