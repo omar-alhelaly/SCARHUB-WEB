@@ -1,6 +1,15 @@
 (function(){
 var css=`
 :root{color-scheme:dark}
+[dir=rtl] body{text-align:start}
+[dir=rtl] p,[dir=rtl] li,[dir=rtl] .notice,[dir=rtl] .stats div{unicode-bidi:plaintext;text-align:start}
+[dir=rtl] h1,[dir=rtl] h2,[dir=rtl] h3{text-align:start}
+[dir=rtl] pre.logo{text-align:right;margin-left:auto;margin-right:0;display:block;width:fit-content}
+[dir=rtl] .contact small{text-align:right;direction:ltr}
+[dir=rtl] .contact a{align-items:flex-start}
+[dir=rtl] .card{text-align:right}
+[dir=rtl] input{text-align:right;direction:rtl}
+[dir=rtl] footer{text-align:center}
 html[data-theme=light]{color-scheme:light;--bg:#f7f2f3;--p:#ffffff;--p2:#fbf4f5;--r:#c4121f;--r2:#b0101c;--t:#1d1416;--m:#6b5d60;--b:#e3d3d6}
 html[data-theme=light] body{background:radial-gradient(1200px 600px at 70% -10%,#f6d9dd 0,transparent 60%),var(--bg)}
 html[data-theme=light] nav{background:#f7f2f3ee}
