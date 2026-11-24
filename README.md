@@ -6,6 +6,6 @@ Live: https://omar-alhelaly.github.io/SCARHUB-WEB/
 
 Pages: Home, Tools (7 classes), Solutions, Docs, Updates, About, FAQ, Security, Contact.
 
-Public tool repositories: SCARCIPHER, SCARDRONE, SCARHUB, SCARGRAB, SCARBASE, SCARPASS, SCARHEADERS, SCARTIME, SCARCVSS, SCARMETA. Older private tool repositories are listed without links and without source code.
+Public tool repositories: SCARCIPHER, SCARDRONE, SCARHUB, SCARGRAB, SCARBASE, SCARPASS, SCARHEADERS, SCARTIME, SCARCVSS, SCARMETA, SCARPORTS, SCARDIFF, SCARHASH. Older private tool repositories are listed without links and without source code.
 
 Authorized use only.
