@@ -5,11 +5,9 @@
 
 create extension if not exists citext with schema extensions;
 
--- 1. config ---------------------------------------------------------------
-create table public.app_config (key text primary key, value text not null);
-alter table public.app_config enable row level security;      -- no policies: nobody but service_role/definer reads it
-revoke all on public.app_config from anon, authenticated;
-insert into public.app_config(key, value) values ('owner_email', 'mrb9330@gmail.com');
+-- 1. owner bootstrap: NO owner email is stored in this file or in any table.
+--    After the owner signs up and verifies their email, run `select public.claim_owner('<their auth user id>');`
+--    once in the Supabase SQL editor (runs as postgres). It only works while no owner exists.
 
 -- 2. helpers --------------------------------------------------------------
 create or replace function public.norm_email(e text) returns text
@@ -62,16 +60,23 @@ $$;
 -- create the profile when an auth user is created (role is NEVER taken from user-controlled metadata)
 create or replace function public.handle_new_user() returns trigger
 language plpgsql security definer set search_path = '' as $$
-declare uname text := new.raw_user_meta_data ->> 'username'; av text := new.raw_user_meta_data ->> 'avatar'; r public.app_role := 'user'; owner_mail text; al text;
+declare uname text := new.raw_user_meta_data ->> 'username'; av text := new.raw_user_meta_data ->> 'avatar';
 begin
-  select value into owner_mail from public.app_config where key = 'owner_email';
-  if public.norm_email(new.email) = public.norm_email(owner_mail) and not exists (select 1 from public.profiles where role = 'owner' and status = 'active') then
-    r := 'owner'; al := 'Owner';
-  end if;
   if uname is null or av is null then raise exception 'invalid signup data'; end if;
-  insert into public.profiles (id, email, email_norm, username, avatar, role, alias)
-  values (new.id, new.email, public.norm_email(new.email), uname, av, r, al);
+  -- every new account is a plain user. Role and alias are never taken from user-controlled metadata.
+  insert into public.profiles (id, email, email_norm, username, avatar, role)
+  values (new.id, new.email, public.norm_email(new.email), uname, av, 'user');
   return new;
+end $$;
+
+create or replace function public.claim_owner(uid uuid) returns void
+language plpgsql security definer set search_path = '' as $$
+begin
+  if exists (select 1 from public.profiles where role = 'owner' and status = 'active') then raise exception 'owner already exists'; end if;
+  if not exists (select 1 from auth.users u where u.id = uid and u.email_confirmed_at is not null) then raise exception 'user not found or email not confirmed'; end if;
+  update public.profiles set role = 'owner', alias = 'Owner' where id = uid and status = 'active';
+  if not found then raise exception 'profile not found'; end if;
+  insert into public.audit_log(actor, action, target) values (uid, 'claim_owner', uid);
 end $$;
 create trigger on_auth_user_created after insert on auth.users for each row execute function public.handle_new_user();
 
@@ -113,7 +118,7 @@ create table public.tool_assets (        -- video/repo/file; readable only if pu
   tool_id uuid primary key references public.tools(id) on delete cascade,
   video_url text check (video_url is null or video_url ~ '^https://[^\s]+$'),
   repo_url text check (repo_url is null or repo_url ~ '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'),
-  file_path text check (file_path is null or file_path ~ '^[a-z0-9][a-z0-9/_.-]{1,120}$')
+  file_path text unique check (file_path is null or file_path ~ '^[a-z0-9][a-z0-9/_.-]{1,120}$')
 );
 alter table public.tools enable row level security; alter table public.tool_assets enable row level security;
 create policy tools_read on public.tools for select to anon, authenticated using (status = 'published' or public.is_staff(auth.uid()));
@@ -131,8 +136,10 @@ insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_typ
 values ('tool-files', 'tool-files', false, 52428800, array['application/zip','application/x-zip-compressed','application/gzip','application/x-tar','text/plain','application/octet-stream'])
 on conflict (id) do update set public = false;
 create policy tool_files_read on storage.objects for select to authenticated using (bucket_id = 'tool-files' and (
-  public.is_staff(auth.uid()) or public.has_active_sub(auth.uid())
-  or exists (select 1 from public.tool_assets a join public.tools t on t.id = a.tool_id where a.file_path = storage.objects.name and t.visibility = 'public' and t.status = 'published')));
+  public.is_staff(auth.uid())
+  or exists (select 1 from public.tool_assets a join public.tools t on t.id = a.tool_id
+             where a.file_path = storage.objects.name and t.status = 'published'            -- drafts are staff-only
+               and (t.visibility = 'public' or public.has_active_sub(auth.uid())))));       -- private needs an active subscription
 create policy tool_files_write on storage.objects for insert to authenticated with check (bucket_id = 'tool-files' and public.is_staff(auth.uid()));
 create policy tool_files_update on storage.objects for update to authenticated using (bucket_id = 'tool-files' and public.is_staff(auth.uid()));
 create policy tool_files_delete on storage.objects for delete to authenticated using (bucket_id = 'tool-files' and public.is_staff(auth.uid()));
@@ -237,4 +244,5 @@ grant execute on function public.update_my_profile(text, text), public.set_role(
   public.is_staff(uuid), public.is_active(uuid), public.has_active_sub(uuid) to authenticated;
 grant execute on function public.has_active_sub(uuid), public.is_staff(uuid), public.is_active(uuid) to anon;   -- needed by RLS policies evaluated for anon
 grant execute on function public.mark_deleted(uuid) to service_role;
+-- claim_owner has no grant on purpose: only the postgres role (SQL editor) can run it.
 grant execute on function public.is_owner(uuid) to authenticated;

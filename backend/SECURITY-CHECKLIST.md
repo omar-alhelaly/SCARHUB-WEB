@@ -3,7 +3,7 @@
 Honest scope: the site is static on GitHub Pages. Real protection lives in Supabase (RLS, Auth, Edge Functions). Hiding the admin page URL is NOT security; the database policies are.
 
 ## Design
-- Roles: owner (one, set from owner_email on first signup), admin, user. Role changes only via `set_role` (owner only), audit logged.
+- Roles: owner (one; claimed once via `claim_owner` in the SQL editor after the owner verifies their email. No owner email is stored in the repo), admin, user. Role changes only via `set_role` (owner only), audit logged.
 - Role is never read from client data or user metadata. All tables have RLS on; clients have no direct write grant on profiles/subscriptions/audit.
 - Staff show an alias everywhere. `public_profiles` and chat use alias for staff. Only the owner sees staff usernames (admin_list_users).
 - Private tool assets: RLS + private storage bucket; subscription state is written only by the signature-verified Stripe webhook.
