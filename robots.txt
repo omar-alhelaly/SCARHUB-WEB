@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://omar-alhelaly.github.io/SCARHUB-WEB/sitemap.xml
