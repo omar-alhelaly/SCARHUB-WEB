@@ -82,4 +82,4 @@ $('[data-en]').forEach(e=>e.textContent=e.dataset[l]);$('[data-ph-en]').forEach(
 document.getElementById('lang').textContent=l=='ar'?'English':'\u0627\u0644\u0639\u0631\u0628\u064a\u0629'}
 document.getElementById('lang').onclick=()=>set(L=='en'?'ar':'en');set(L);
 if(document.getElementById('q'))document.getElementById('q').oninput=e=>{const v=e.target.value.toLowerCase();$('.card').forEach(c=>c.style.display=c.dataset.name.includes(v)?'':'none')}
-</script></body></html>
+</script><script src="fx.js"></script></body></html>
