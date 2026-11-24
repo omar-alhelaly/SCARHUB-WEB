@@ -88,7 +88,7 @@ create table public.subscriptions (
   provider_customer_id text, provider_sub_id text unique, updated_at timestamptz not null default now()
 );
 alter table public.subscriptions enable row level security;
-create policy subs_select_own on public.subscriptions for select to authenticated using (user_id = auth.uid() or public.is_staff(auth.uid()));
+create policy subs_select_own on public.subscriptions for select to authenticated using (user_id = auth.uid() or public.is_owner(auth.uid()));
 revoke all on public.subscriptions from anon, authenticated;
 grant select on public.subscriptions to authenticated;
 create or replace function public.has_active_sub(uid uuid) returns boolean
@@ -198,7 +198,7 @@ declare o boolean := public.is_owner(auth.uid());
 begin
   if not public.is_staff(auth.uid()) then raise exception 'forbidden'; end if;
   return query select p.id, case when p.role = 'user' or o then p.username::text else null end, p.alias::text, case when o then p.email::text else null end,
-    p.avatar, p.role, p.status, p.created_at, p.deleted_at, public.has_active_sub(p.id)
+    p.avatar, p.role, p.status, p.created_at, p.deleted_at, case when o then public.has_active_sub(p.id) else null end
     from public.profiles p order by p.created_at desc;
 end $$;
 
@@ -213,7 +213,7 @@ begin
 end $$;
 
 
--- 9. payment settings (owner edits, admins read-only, public reads active plans). Secrets are NOT here: they live in Edge Function secrets.
+-- 9. payment settings (OWNER ONLY. Admins have no access. Everyone can read ACTIVE plans so they can buy; that is the only exposure). Secrets are NOT here: they live in Edge Function secrets.
 create table public.payment_providers (provider text primary key check (provider in ('stripe','paymob','fawry','paypal','manual')), enabled boolean not null default false);
 insert into public.payment_providers(provider) values ('stripe'),('paymob'),('fawry'),('paypal'),('manual');
 create table public.plans (
@@ -224,9 +224,9 @@ create table public.plans (
   active boolean not null default false, created_at timestamptz not null default now()
 );
 alter table public.payment_providers enable row level security; alter table public.plans enable row level security;
-create policy prov_read on public.payment_providers for select to authenticated using (public.is_staff(auth.uid()));
+create policy prov_read on public.payment_providers for select to authenticated using (public.is_owner(auth.uid()));
 create policy prov_write on public.payment_providers for update to authenticated using (public.is_owner(auth.uid())) with check (public.is_owner(auth.uid()));
-create policy plans_read on public.plans for select to anon, authenticated using (active or public.is_staff(auth.uid()));
+create policy plans_read on public.plans for select to anon, authenticated using (active or public.is_owner(auth.uid()));
 create policy plans_write on public.plans for all to authenticated using (public.is_owner(auth.uid())) with check (public.is_owner(auth.uid()));
 revoke all on public.payment_providers, public.plans from anon, authenticated;
 grant select on public.plans to anon, authenticated; grant select on public.payment_providers to authenticated;

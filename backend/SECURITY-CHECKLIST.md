@@ -35,4 +35,4 @@ Honest scope: the site is static on GitHub Pages. Real protection lives in Supab
 - Egypt: Stripe may not onboard Egyptian merchants directly; a local provider (Paymob/Fawry) needs a different webhook function.
 - Password policy: 12-64 chars, letters + digits + symbols (agreed with Omar; replaces the first 5-12 idea).
 - Paymob, Fawry and PayPal are configurable in the plans table, but only Stripe has a checkout + webhook function so far. Each other provider needs its own signed-webhook function and merchant account before it can be switched on.
-- Payment prices, currency, period and provider switches are editable by the owner only. Admins can read them.
+- ALL money features (plans, prices, provider switches, subscription records, subscriber flags) are owner-only in RLS/RPCs. Admins get no read or write access. Any refunds or payouts are done in the payment provider dashboard by the owner.
