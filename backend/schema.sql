@@ -246,4 +246,4 @@ grant execute on function public.update_my_profile(text, text), public.set_role(
 grant execute on function public.has_active_sub(uuid), public.is_staff(uuid), public.is_active(uuid) to anon;   -- needed by RLS policies evaluated for anon
 grant execute on function public.mark_deleted(uuid) to service_role;
 -- claim_owner has no grant on purpose: only the postgres role (SQL editor) can run it.
-grant execute on function public.is_owner(uuid) to authenticated;
+grant execute on function public.is_owner(uuid) to authenticated, anon;
