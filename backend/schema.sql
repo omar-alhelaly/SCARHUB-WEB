@@ -60,9 +60,10 @@ $$;
 -- create the profile when an auth user is created (role is NEVER taken from user-controlled metadata)
 create or replace function public.handle_new_user() returns trigger
 language plpgsql security definer set search_path = '' as $$
-declare uname text := new.raw_user_meta_data ->> 'username'; av text := new.raw_user_meta_data ->> 'avatar';
+declare
+  uname text := coalesce(nullif(new.raw_user_meta_data ->> 'username', ''), 'user_' || substr(replace(new.id::text, '-', ''), 1, 8));
+  av text := coalesce(nullif(new.raw_user_meta_data ->> 'avatar', ''), 'b1');
 begin
-  if uname is null or av is null then raise exception 'invalid signup data'; end if;
   -- every new account is a plain user. Role and alias are never taken from user-controlled metadata.
   insert into public.profiles (id, email, email_norm, username, avatar, role)
   values (new.id, new.email, public.norm_email(new.email), uname, av, 'user');
