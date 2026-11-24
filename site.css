@@ -124,6 +124,7 @@ html[data-theme=light] .band{background:linear-gradient(90deg,#f6d9dd,#fbf4f5)}
 html[data-theme=light] .hero:before{background:repeating-linear-gradient(0deg,transparent 0 3px,#c4121f08 3px 4px)}
 [dir=rtl] .term,[dir=rtl] .step small,[dir=rtl] .box small{direction:ltr}
 
+.step code{display:block;white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%}.card .cmds code{overflow-wrap:anywhere}
 .skip{position:absolute;inset-inline-start:8px;top:-60px;background:var(--r);color:#fff;padding:10px 14px;border-radius:8px;z-index:100;text-decoration:none}.skip:focus{top:8px}
 a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--r2);outline-offset:2px}
 main:focus{outline:none}
