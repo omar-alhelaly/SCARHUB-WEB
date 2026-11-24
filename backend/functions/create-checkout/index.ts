@@ -22,6 +22,7 @@ Deno.serve(async (req) => {
     mode: "subscription",
     line_items: [{ price: plan.provider_ref, quantity: 1 }],
     client_reference_id: user.id,
+    subscription_data: { metadata: { user_id: user.id } },   // lets later webhook events map to the user without a lookup
     customer_email: user.email!,
     success_url: `${ORIGIN}/SCARHUB-WEB/account.html?sub=ok`,
     cancel_url: `${ORIGIN}/SCARHUB-WEB/account.html?sub=cancel`,
