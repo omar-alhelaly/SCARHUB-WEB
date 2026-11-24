@@ -61,7 +61,7 @@
   }
 
   async function load() {
-    if (!CFG.url || !CFG.anonKey || !window.supabase) { off(); return false; }
+    if (!CFG.url || !CFG.anonKey || !window.supabase) { if (PAGE !== "tools") off(); return false; }
     sb = window.supabase.createClient(CFG.url, CFG.anonKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, flowType: "pkce" } });
     var s = (await sb.auth.getSession()).data.session;
     if (s) {

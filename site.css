@@ -123,3 +123,6 @@ html[data-theme=light] .term{box-shadow:0 20px 60px #c4121f22}
 html[data-theme=light] .band{background:linear-gradient(90deg,#f6d9dd,#fbf4f5)}
 html[data-theme=light] .hero:before{background:repeating-linear-gradient(0deg,transparent 0 3px,#c4121f08 3px 4px)}
 [dir=rtl] .term,[dir=rtl] .step small,[dir=rtl] .box small{direction:ltr}
+
+.card.third{border-style:dashed}.tag.third{border-color:#b98a00;color:#e0b43a}
+.credit{font-size:13px;color:var(--m);border-inline-start:3px solid #b98a00;padding:4px 10px;background:#b98a0014;border-radius:6px}

@@ -16,7 +16,7 @@ window.addEventListener('DOMContentLoaded',function(){
  $('nav .links a').forEach(function(a){a.addEventListener('click',function(){nav.classList.remove('open')})});
  // tools page: search + class chips
  var q=document.getElementById('q'),st={c:'all',q:''};
- function filt(){var n=0;$('.card').forEach(function(c){var ok=(st.c=='all'||c.dataset.c==st.c)&&c.dataset.name.indexOf(st.q)>-1;c.style.display=ok?'':'none';if(ok)n++});
+ function filt(){var n=0;$('.card').forEach(function(c){var th=c.dataset.o=='third';var ok=(st.c=='all'||(st.c=='third'?th:st.c=='zenoth'?!th:c.dataset.c==st.c))&&c.dataset.name.indexOf(st.q)>-1;c.style.display=ok?'':'none';if(ok)n++});
   $('.cls').forEach(function(s){var vis=$('.card',s).some(function(c){return c.style.display!='none'});s.style.display=vis?'':'none'});
   var e=document.getElementById('empty');if(e)e.style.display=n?'none':'block'}
  if(q)q.oninput=function(e){st.q=e.target.value.toLowerCase().trim();filt()};
