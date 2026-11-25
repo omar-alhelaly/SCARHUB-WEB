@@ -289,13 +289,17 @@
       inp("name", tr("Name", "الاسم"), { maxlength: "40", required: "", type: "text" }), inp("slug", "Slug (a-z, 0-9, -)", { maxlength: "41", required: "", type: "text" }),
       h("label", { text: tr("Class", "التصنيف") }), cls, inp("den", tr("Description (English)", "الوصف (انجليزي)"), { maxlength: "600", rows: "3" }, "textarea"), inp("dar", tr("Description (Arabic)", "الوصف (عربي)"), { maxlength: "600", rows: "3" }, "textarea"),
       inp("cmds", tr("Commands, one per line (max 10)", "الأوامر، واحد في السطر (10 كحد أقصى)"), { rows: "3" }, "textarea"), h("label", { text: tr("Visibility", "الظهور") }), vis, h("label", { text: tr("Status", "الحالة") }), st,
+      inp("price", tr("Price (optional, e.g. 49.00)", "السعر (اختياري، مثلا 49.00)"), { type: "text", inputmode: "decimal", maxlength: "12" }), inp("cur", tr("Currency", "العملة"), { type: "text", maxlength: "3", value: "EGP" }),
       inp("video", tr("Video URL (https)", "رابط الفيديو (https)"), { type: "text" }), inp("repo", tr("GitHub repo URL", "رابط الريبو"), { type: "text" }), h("label", { "for": "t_file", text: tr("File (zip, max 50 MB)", "ملف (zip حتى 50MB)") }), file,
       h("div", { "class": "row" }, h("button", { "class": "btn f", type: "submit", text: tr("Publish", "نشر") })), tmsg);
     tf.addEventListener("submit", async function (e) {
       e.preventDefault(); var slug = f.slug.value.trim();
       if (!/^[a-z0-9][a-z0-9-]{1,40}$/.test(slug)) return say(tmsg, "slug?", "err");
       var cmds = f.cmds.value.split("\n").map(function (x) { return x.trim(); }).filter(Boolean).slice(0, 10);
-      var ins = await sb.from("tools").insert({ slug: slug, name: f.name.value.trim(), class: cls.value, description_en: f.den.value.trim(), description_ar: f.dar.value.trim() || null, commands: cmds, visibility: vis.value, status: st.value, created_by: me.id }).select("id").single();
+      var pm_ = null, cur_ = (f.cur.value.trim() || "EGP").toUpperCase();
+      if (f.price.value.trim()) { pm_ = Math.round(parseFloat(f.price.value) * 100); if (!(pm_ >= 0 && pm_ <= 100000000)) return say(tmsg, tr("Price?", "السعر؟"), "err"); }
+      if (!/^[A-Z]{3}$/.test(cur_)) return say(tmsg, tr("Currency?", "العملة؟"), "err");
+      var ins = await sb.from("tools").insert({ slug: slug, name: f.name.value.trim(), class: cls.value, description_en: f.den.value.trim(), description_ar: f.dar.value.trim() || null, commands: cmds, visibility: vis.value, status: st.value, created_by: me.id, price_minor: pm_, currency: cur_ }).select("id").single();
       if (ins.error) return say(tmsg, ins.error.message, "err");
       var path = null;
       if (file.files[0]) { if (file.files[0].size > 52428800) return say(tmsg, "file > 50 MB", "err"); path = slug + "/" + file.files[0].name.replace(/[^A-Za-z0-9._-]/g, "_").toLowerCase(); var up = await sb.storage.from("tool-files").upload(path, file.files[0], { upsert: false }); if (up.error) return say(tmsg, up.error.message, "err"); }
@@ -303,6 +307,29 @@
       say(tmsg, ax.error ? ax.error.message : tr("Published.", "اتنشرت."), ax.error ? "err" : "ok");
     });
     box.appendChild(h("div", { "class": "panel" }, tf));
+    /* tool prices: owner edits all tools and sets discounts; other admins edit only the price of tools they created */
+    var tp = h("div", { "class": "panel" }, h("h2", { text: tr("Tool prices", "أسعار الأدوات") })), tpmsg = h("div", { "class": "msg" }); box.appendChild(tp);
+    tp.appendChild(h("p", { "class": "hint", text: owner ? tr("You can edit the price and discount of every tool.", "تقدر تعدل السعر والخصم لأي أداة.") : tr("You can edit the price of tools you created. Discounts are set by the owner.", "تقدر تعدل سعر الأدوات اللي إنت عملتها. الخصومات من المالك بس.") }));
+    var tl = await sb.from("tools").select("id,name,created_by,price_minor,currency,discount_percent,discount_until").order("name");
+    (tl.data || []).forEach(function (t) {
+      var mine = t.created_by === me.id, canPrice = owner || mine;
+      var pr = h("input", { type: "text", inputmode: "decimal", maxlength: "12", placeholder: tr("no price", "من غير سعر"), value: t.price_minor == null ? "" : (t.price_minor / 100).toFixed(2) });
+      var cu = h("input", { type: "text", maxlength: "3", value: t.currency, style: "width:70px" });
+      var ds = h("input", { type: "number", min: "0", max: "90", value: String(t.discount_percent), style: "width:70px", title: "discount %" });
+      var du = h("input", { type: "date", value: t.discount_until ? t.discount_until.slice(0, 10) : "" });
+      pr.disabled = cu.disabled = !canPrice; ds.disabled = du.disabled = !owner;
+      var row = h("div", { "class": "row" }, h("span", { text: t.name + (mine ? "" : tr(" (another admin's)", " (لأدمن تاني)")) + "  " }), pr, cu);
+      if (owner) { row.appendChild(h("span", { text: " -% " })); row.appendChild(ds); row.appendChild(h("span", { text: tr(" until ", " لحد ") })); row.appendChild(du); }
+      if (canPrice) row.appendChild(h("button", { "class": "btn f", type: "button", text: tr("Save", "حفظ"), on: { click: async function () {
+        var upd = {}, v = pr.value.trim(), c = cu.value.trim().toUpperCase();
+        if (v === "") upd.price_minor = null; else { var m = Math.round(parseFloat(v) * 100); if (!(m >= 0 && m <= 100000000)) return say(tpmsg, tr("Price?", "السعر؟"), "err"); upd.price_minor = m; }
+        if (!/^[A-Z]{3}$/.test(c)) return say(tpmsg, tr("Currency?", "العملة؟"), "err"); upd.currency = c;
+        if (owner) { var d = parseInt(ds.value || "0", 10); if (!(d >= 0 && d <= 90)) return say(tpmsg, tr("Discount 0 to 90", "الخصم من 0 لـ 90"), "err"); upd.discount_percent = upd.price_minor == null ? 0 : d; upd.discount_until = du.value ? new Date(du.value + "T23:59:59Z").toISOString() : null; }
+        var x = await sb.from("tools").update(upd).eq("id", t.id); say(tpmsg, x.error ? x.error.message : tr("Saved.", "اتحفظ."), x.error ? "err" : "ok");
+      } } }));
+      tp.appendChild(row);
+    });
+    tp.appendChild(tpmsg);
     if (!owner) return;
     /* plans (owner only) */
     var pp = h("div", { "class": "panel" }, h("h2", { text: tr("Payments", "المدفوعات") })), pmsg = h("div", { "class": "msg" }); box.appendChild(pp);
@@ -358,14 +385,17 @@
 
   /* ---------- published tools on tools.html ---------- */
   async function dynTools() {
-    var r = await sb.from("tools").select("id,slug,name,class,description_en,description_ar,commands,visibility").eq("status", "published"); if (r.error || !r.data) return;
+    var r = await sb.from("tools").select("id,slug,name,class,description_en,description_ar,commands,visibility,price_minor,currency,discount_percent,discount_until").eq("status", "published"); if (r.error || !r.data) return;
     r.data.forEach(function (t) {
       var grid = document.querySelector("#c-" + t.class + " .grid"); if (!grid) return;
       var cmds = h("div", { "class": "cmds" }); (t.commands || []).forEach(function (c) { cmds.appendChild(h("code", { text: c })); });
       var p = h("p", { text: t.description_en }); if (t.description_ar) { p.setAttribute("data-en", t.description_en); p.setAttribute("data-ar", t.description_ar); }
       var tagc = t.visibility === "private" ? h("span", { "class": "tag", text: "PRO" }) : h("span", { "class": "tag new", text: "NEW" });
+      var priceEl = null;
+      if (t.price_minor != null) { var on = t.discount_percent > 0 && (!t.discount_until || new Date(t.discount_until) > new Date()), eff = on ? Math.floor(t.price_minor * (100 - t.discount_percent) / 100) : t.price_minor;
+        priceEl = h("span", { "class": "priv" }, on ? h("s", { text: (t.price_minor / 100).toFixed(2) }) : null, on ? " " : null, (eff / 100).toFixed(2) + " " + t.currency + (on ? " (-" + t.discount_percent + "%)" : "")); }
       grid.appendChild(h("article", { "class": "card", "data-name": t.slug + " " + t.class, "data-c": t.class }, h("div", { "class": "top" }, h("h3", { text: t.name }), h("span", null, tagc)), p, cmds,
-        h("div", { "class": "foot" }, h("span", { "class": "priv", text: t.visibility === "private" ? "Subscribers only" : "Public" }), h("a", { "class": "more", href: "tool.html?t=" + encodeURIComponent(t.slug), text: "Details" }))));
+        h("div", { "class": "foot" }, h("span", { "class": "priv", text: t.visibility === "private" ? "Subscribers only" : "Public" }), priceEl, h("a", { "class": "more", href: "tool.html?t=" + encodeURIComponent(t.slug), text: "Details" }))));
     });
   }
 
